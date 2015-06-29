@@ -4,9 +4,17 @@
  */
 
 var msgpack = new MsgpackZ.Packer();
+var msgunpack = new MsgpackZ.Unpacker();
 
-msgpack.packArray(2);
 msgpack.packInt64FromHexStr("-0x4");
 msgpack.packFloat(0.1234);
+msgpack.packString("this is a test");
+msgpack.packInt64FromHexStr("-1");
+msgpack.packInt64FromHexStr('-0x122312312312131');
 
 msgpack.__debugOutput();
+
+var stream = msgpack.getStream();
+
+MsgpackZ._prettyPrint(stream, 0);
+

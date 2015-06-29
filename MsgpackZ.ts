@@ -6,7 +6,7 @@ module MsgpackZ {
     var _toString = String.fromCharCode;
     var _num2bin: Array<string>, _bin2num: Array<number>;
 
-    enum MsgpackType {
+    export enum MsgpackType {
         Nil,
         Bool,
         Int,
@@ -23,6 +23,8 @@ module MsgpackZ {
 
     function _init() {
         var i: number = 0, v: string;
+        _num2bin = [];
+        _bin2num = [];
         for (; i < 0x100; ++i) {
             v = _toString(i);
             _num2bin[i] = v;
@@ -136,6 +138,7 @@ module MsgpackZ {
          * @param int64 hex string
          */
         packInt64FromHexStr(int64: string) {
+            //TODO when int64<0, the encode is wrong
             var hi: number, li: number;
             var hs: string, ls: string;
             hs = (int64+'').replace(/^0x/, '');
@@ -246,7 +249,7 @@ module MsgpackZ {
 
     export class MsgpackObj {
         public objType: MsgpackType;
-        private m_value: any;
+        public m_value: any;
         constructor(type: MsgpackType, value: any) {
             this.objType = type;
             this.m_value = value;
@@ -264,13 +267,19 @@ module MsgpackZ {
             this.m_curPos = -1;
             this.m_totalLength = buffer.length;
         }
-        decode(): MsgpackObj {
+        setOffset(offset: number) {
+            this.m_curPos = offset - 1;
+        }
+        getOffset(): number {
+            return this.m_curPos + 1;
+        }
+        unpack(): MsgpackObj {
             var size: number, i: number, iz: number,
                 iz: number, c: number, num: number = 0;
             var sign: number, exp: number, frac: number, ans: number,
                 hi: number, lo: number;
             var hash;
-            var ary: Array<number>;
+            var ary: Array<any>;
             var hexStr: string, lowHex: string, highHex: string;
             var type: number = this.m_buf[++this.m_curPos];
             if (type >= 0xe0) {
@@ -352,6 +361,7 @@ module MsgpackZ {
                             lo = 0;
                             hi += 1;
                         }
+                        hi = hi * -1;
                     } else {
                         hi = sign * 0x1000000 +
                             (this.m_buf[++this.m_curPos] << 16) +
@@ -430,8 +440,7 @@ module MsgpackZ {
                                                                   | (this.m_buf[++i] & 0x3f)));
                         }
                         this.m_curPos = i;
-                        //TODO can it been a int64 hex string?
-                        hash[_toString.apply(null, ary)] = this.decode().getValue();
+                        hash[_toString.apply(null, ary)] = this.unpack();
                     }
                     return new MsgpackObj(MsgpackType.Map, hash);
                 // 0xdd: array32, 0xdc: array 16, 0x90: array
@@ -440,10 +449,71 @@ module MsgpackZ {
                 case 0x90:
                     ary = [];
                     while (num--) {
-                        ary.push(this.decode().getValue());
+                        ary.push(this.unpack());
                     }
                     return new MsgpackObj(MsgpackType.Arr, ary);
             }
         }
+    }
+    /**
+     * unpack one data from a stream begin with offset
+     * @param buffer packed data source
+     * @param offset offset
+     * @param result unpacked data
+     * @returns {number} offset after unpack
+     */
+    export function unpack(buffer: Array<number>, offset: number,
+                           result: MsgpackObj): number {
+        var unpacker: Unpacker = new Unpacker();
+        unpacker.setStream(buffer);
+        unpacker.setOffset(offset);
+        var ret: MsgpackObj = unpacker.unpack();
+        result.m_value = ret.m_value;
+        result.objType = ret.objType;
+        return unpacker.getOffset();
+    }
+    export function _prettyPrint(buffer: Array<number>, offset: number) {
+        var unpacker: Unpacker = new Unpacker();
+        unpacker.setStream(buffer);
+        unpacker.setOffset(offset);
+        document.writeln('<p><ol>');
+        while (offset < buffer.length) {
+            var data: MsgpackObj = unpacker.unpack();
+            var value: any = data.getValue();
+            offset = unpacker.getOffset();
+            switch (data.objType) {
+                case MsgpackZ.MsgpackType.Arr:
+                    document.writeln('<li>Array: ' + value.toString() + '</li>');
+                    break;
+                case MsgpackZ.MsgpackType.Int:
+                    document.writeln('<li>Int: ' + value.toString() + '</li>');
+                    break;
+                case MsgpackZ.MsgpackType.Float:
+                    document.writeln('<li>Float: ' + value.toString() + '</li>');
+                    break;
+                case MsgpackZ.MsgpackType.Str:
+                    document.writeln('<li>String: "' + value + '"</li>');
+                    break;
+                case MsgpackZ.MsgpackType.Bool:
+                    document.writeln('<li>Boolean: ' + value.toString() + '</li>');
+                    break;
+                case MsgpackZ.MsgpackType.Nil:
+                    document.writeln('<li>null or undefined</li>');
+                    break;
+                case MsgpackZ.MsgpackType.Int64Hex:
+                    document.writeln('<li>Int: ' + value + '</li>');
+                    break;
+                case MsgpackZ.MsgpackType.Bin:
+                    document.writeln('<li>Bin: ' + value.toString() + '</li>');
+                    break;
+                case MsgpackZ.MsgpackType.Map:
+                    document.writeln('<li>Map: ' + value.toString() + '</li>');
+                    break;
+                case MsgpackZ.MsgpackType.Ext:
+                    document.writeln('<li>Ext: ' + value.toString() + '</li>');
+                    break;
+            }
+        }
+        document.writeln('</ol></p>');
     }
 }
