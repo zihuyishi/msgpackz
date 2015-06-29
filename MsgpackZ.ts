@@ -146,15 +146,27 @@ module MsgpackZ {
             hs = hs.length > 8 ? hs.substr(0, hs.length - 8) : '';
             hi = parseInt(hs, 16);
             li = parseInt(ls, 16);
-            if (hi < 0) {
+            var neg: Boolean = hi < 0 || li < 0;
+            if (neg) {
                 this.m_buf.push(0xd3);
+                hi = Math.abs(hi);
+                li = Math.abs(li);
             } else {
                 this.m_buf.push(0xcf);
             }
-            this.m_buf.push((hi >> 24) & 0xff,  (hi >> 16) & 0xff,
-                            (hi >>  8) & 0xff,          hi & 0xff,
-                            (li >> 24) & 0xff,  (li >> 16) & 0xff,
-                            (li >>  8) & 0xff,          li & 0xff);
+            var b = this.m_buf, o = this.m_buf.length;
+            for (var i = 7; i >=0; i--) {
+                b[o+i] = li & 0xff;
+                li = i == 4 ? hi : li >> 8;
+            }
+            if (neg) {
+                var carry: number = 1;
+                for (i = 7; i >=0; i--) {
+                    var v: number = (b[o+i] ^ 0xff) + carry;
+                    b[o+i] = v & 0xff;
+                    carry = v >> 8;
+                }
+            }
         }
         packFloat(mix: number) {
             // THX!! @edvakf
@@ -361,7 +373,11 @@ module MsgpackZ {
                             lo = 0;
                             hi += 1;
                         }
-                        hi = hi * -1;
+                        if (hi == 0) {
+                            lo = lo * -1;
+                        } else {
+                            hi = hi * -1;
+                        }
                     } else {
                         hi = sign * 0x1000000 +
                             (this.m_buf[++this.m_curPos] << 16) +
@@ -501,7 +517,7 @@ module MsgpackZ {
                     document.writeln('<li>null or undefined</li>');
                     break;
                 case MsgpackZ.MsgpackType.Int64Hex:
-                    document.writeln('<li>Int: ' + value + '</li>');
+                    document.writeln('<li>Hex Int: ' + value + '</li>');
                     break;
                 case MsgpackZ.MsgpackType.Bin:
                     document.writeln('<li>Bin: ' + value.toString() + '</li>');

@@ -6,7 +6,7 @@
 var msgpack = new MsgpackZ.Packer();
 var msgunpack = new MsgpackZ.Unpacker();
 
-msgpack.packInt64FromHexStr("-0x4");
+msgpack.packInt64FromHexStr("-0x1");
 msgpack.packFloat(0.1234);
 msgpack.packString("this is a test");
 msgpack.packInt64FromHexStr("-1");
