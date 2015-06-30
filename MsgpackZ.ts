@@ -50,6 +50,9 @@ module MsgpackZ {
         }
         return rv.join("");
     }
+    var _isArray = Array.isArray || (function(mix) {
+            return Object.prototype.toString.call(mix) === "[object Array]";
+        });
 
     _init();
 
@@ -81,6 +84,12 @@ module MsgpackZ {
             else {
                 this.m_buf.push(0xc3);
             }
+        }
+        packNaN() {
+            this.m_buf.push(0xcb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
+        }
+        packInfinity() {
+            this.m_buf.push(0xcb, 0x7f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00);
         }
         packInt(mix: number) {
             var high: number, low: number;
@@ -234,7 +243,7 @@ module MsgpackZ {
                     (size >>  8) & 0xff, size & 0xff);
             }
         }
-        packArray(length: number) {
+        packArrayHead(length: number) {
             if (length < 16) {
                 this.m_buf.push(0x90 + length);
             } else if (length < 0x10000) {
@@ -242,6 +251,44 @@ module MsgpackZ {
             } else if (length < 0x100000000) {
                 this.m_buf.push(0xdd, length >>> 24, (length >> 16) & 0xff,
                     (length >> 8) & 0xff, length & 0xff);
+            }
+        }
+        packArray(data: Array<any>) {
+            var length: number = data.length;
+            this.packArrayHead(length);
+            for (var i = 0;i < length; i++) {
+                this.pack(data[i]);
+            }
+        }
+        packMapHead(length: number) {
+            if (length < 16) {
+                this.m_buf.push(0x80 + length);
+            } else if (length < 0x10000) {
+                this.m_buf.push(0xde, length >> 8, length & 0xff);
+            } else if (length < 0x100000000) {
+                this.m_buf.push(0xdf, length >>> 24, (length >> 16) & 0xff,
+                    (length >> 8) & 0xff, length & 0xff);
+            }
+        }
+        packMap(data: any) {
+            var pos: number = this.m_buf.length;
+            this.m_buf.push(0); //placeholder
+            var size: number = 0;
+            var i: any;
+            for (i in data) {
+                if (typeof data[i] !== 'function') {
+                    ++size;
+                    this.pack(i);
+                    this.pack(data[i]);
+                }
+            }
+            if (size < 16) {
+                this.m_buf[pos] = 0x80 + size;
+            } else if (size < 0x10000) {
+                this.m_buf.splice(pos, 1, 0xde, size >> 8, size & 0xff);
+            } else if (size < 0x100000000) {
+                this.m_buf.splice(pos, 1, 0xdf, size >>> 24,
+                    (size >> 16) & 0xff, (size >> 8) & 0xff, size & 0xff);
             }
         }
         packBin(data: Array<number>, length: number) {
@@ -255,6 +302,52 @@ module MsgpackZ {
             }
             for (var i = 0; i < length; ++i) {
                 this.m_buf.push(data[i] & 0xff);
+            }
+        }
+
+        pack(data: any): MsgpackType {
+            var size: number, i: number;
+            if (data == null) {
+                this.packNil();
+                return MsgpackType.Nil;
+            } else if (data === false || data === true) {
+                this.packBool(data);
+                return MsgpackType.Bool;
+            } else {
+                switch (typeof data) {
+                    case "number":
+                        if (data !== data) {
+                            this.packNaN();
+                            return MsgpackType.Float;
+                        } else if (data === Infinity) {
+                            this.packInfinity();
+                            return MsgpackType.Float;
+                        } else if (Math.floor(data) === data) {
+                            this.packInt(data);
+                            return MsgpackType.Int;
+                        } else {
+                            this.packFloat(data);
+                            return MsgpackType.Float;
+                        }
+                        break;
+                    case "string":
+                        this.packString(data);
+                        return MsgpackType.Str;
+                        break;
+                    case "function":
+                        //ignore
+                        return MsgpackType.Nil;
+                        break;
+                    default :
+                        if (_isArray(data)) {
+                            this.packArray(data);
+                            return MsgpackType.Arr;
+                        } else {
+                            this.packMap(data);
+                            return MsgpackType.Map;
+                        }
+
+                }
             }
         }
     }
@@ -456,7 +549,7 @@ module MsgpackZ {
                                                                   | (this.m_buf[++i] & 0x3f)));
                         }
                         this.m_curPos = i;
-                        hash[_toString.apply(null, ary)] = this.unpack();
+                        hash[_toString.apply(null, ary)] = this.unpack().getValue();
                     }
                     return new MsgpackObj(MsgpackType.Map, hash);
                 // 0xdd: array32, 0xdc: array 16, 0x90: array
@@ -465,7 +558,7 @@ module MsgpackZ {
                 case 0x90:
                     ary = [];
                     while (num--) {
-                        ary.push(this.unpack());
+                        ary.push(this.unpack().getValue());
                     }
                     return new MsgpackObj(MsgpackType.Arr, ary);
             }
@@ -488,8 +581,16 @@ module MsgpackZ {
         result.objType = ret.objType;
         return unpacker.getOffset();
     }
+
+    /**
+     * use for debug
+     * @param buffer
+     * @param offset
+     * @private
+     */
     export function _prettyPrint(buffer: Array<number>, offset: number) {
         var unpacker: Unpacker = new Unpacker();
+        var i: number;
         unpacker.setStream(buffer);
         unpacker.setOffset(offset);
         document.writeln('<p><ol>');
@@ -499,7 +600,11 @@ module MsgpackZ {
             offset = unpacker.getOffset();
             switch (data.objType) {
                 case MsgpackZ.MsgpackType.Arr:
-                    document.writeln('<li>Array: ' + value.toString() + '</li>');
+                    document.writeln('<li>Array: [');
+                    for (i = 0; i < value.length; i++) {
+                        document.write(value[i] + ', ');
+                    }
+                    document.write(']</li>');
                     break;
                 case MsgpackZ.MsgpackType.Int:
                     document.writeln('<li>Int: ' + value.toString() + '</li>');
@@ -523,7 +628,7 @@ module MsgpackZ {
                     document.writeln('<li>Bin: ' + value.toString() + '</li>');
                     break;
                 case MsgpackZ.MsgpackType.Map:
-                    document.writeln('<li>Map: ' + value.toString() + '</li>');
+                    document.writeln('<li>Map: ' + JSON.stringify(value) + '</li>');
                     break;
                 case MsgpackZ.MsgpackType.Ext:
                     document.writeln('<li>Ext: ' + value.toString() + '</li>');
@@ -533,3 +638,4 @@ module MsgpackZ {
         document.writeln('</ol></p>');
     }
 }
+
