@@ -1,6 +1,6 @@
 /**
  *
- * Created by lichong on 15/6/26.
+ * Created by Z on 15/6/26.
  */
 module MsgpackZ {
     var _toString = String.fromCharCode;
@@ -531,7 +531,7 @@ module MsgpackZ {
                 case 0xc4: num += this.m_buf[++this.m_curPos];
                     var end: number = ++this.m_curPos + num;
                     var ret: Array<number> = this.m_buf.slice(this.m_curPos, end);
-                    this.m_curPos += num;
+                    this.m_curPos += num-1;
                     return new MsgpackObj(MsgpackType.Bin, ret);
                 // 0xdf: map32, 0xde: map16, 0x80: map
                 case 0xdf: num += this.m_buf[++this.m_curPos] * 0x1000000 + (this.m_buf[++this.m_curPos] << 16);
